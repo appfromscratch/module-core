@@ -1,0 +1,34 @@
+{
+  "name": "appfromscratch-core",
+  "version": "0.1.0",
+  "description": "This is the source code accompanying the Module Core of App From Scratch.",
+  "main": "index.js",
+  "dependencies": {
+    "express": "^4.15.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "node ./index.js",
+    "something": "echo \"running me\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yinso/module-core.git"
+  },
+  "keywords": [
+    "web",
+    "development",
+    "framework",
+    "basic",
+    "website",
+    "nodejs",
+    "learning"
+  ],
+  "author": "Yinso Chen <yc@appfromscratch.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/yinso/module-core/issues"
+  },
+  "homepage": "https://github.com/yinso/module-core#readme"
+}
