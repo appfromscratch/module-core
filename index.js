@@ -2,6 +2,7 @@ var http = require('http'); // http <- the http module.
 var fs = require('fs');
 var path = require('path');
 var express = require('express');
+var MarkdownIt = require('markdown-it');
 
 function fooHandler(req, res) {
   res.setHeader('content-type', 'text/plain');
@@ -41,6 +42,46 @@ function throwErrorIfReached(req, res) {
   throw new Error("I am reached");
 }
 
+function mapUrlToFilePath(url, folderName) {
+  return path.join(__dirname, folderName, url);
+}
+
+function configurableStaticFileHandler(folderName) {
+  return function staticFileHandler(req, res, next) {
+    // 1 - identify which particular file that this request is asking for.
+    // 2 - find that file, read it, and then serve out the result.
+    // hello.html
+    // /hello.html.
+    // /hello.html => static/hello.html
+    // /test.html => static/test.html
+    // <url> => static/<url>
+    var mappedPath = mapUrlToFilePath(req.url, folderName);
+    var md = new MarkdownIt();
+    // .md => md.render
+    // .png => pass through (binary instead of utf8)
+    // .html => pass through.
+    fs.readFile(mappedPath, function (err, data) {
+      if (err != null) {
+        next(err);
+      } else {
+        console.log('mappedPath =', mappedPath, path.extname(mappedPath));
+        switch (path.extname(mappedPath)) {
+          case '.md':
+            // convert this data over from html to markdown.
+            try {
+              return res.end(md.render(data.toString('utf8')));
+            } catch (e) {
+              next(e);
+            }
+          default:
+            return res.end(data);
+        }
+      }
+    });
+  }
+}
+
+
 app.use(sayHelloMiddleware);
 app.get('/foo', fooHandler);
 //app.post('/foo', fooHandler);
@@ -49,8 +90,8 @@ app.get('/xyz', function (rqe, res) {
   res.end('this is the XYZ handler');
 });
 app.get('/error', throwErrorIfReached);
-app.use(defaultHandler);
-app.use(errorMiddleware);
+app.use(express.static(path.join(__dirname, 'static')));
+app.use(configurableStaticFileHandler('static'));
 
 // called back.
 // by using callback - Node.js handles IO asynchronously.
