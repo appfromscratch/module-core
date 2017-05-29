@@ -71,7 +71,7 @@ function configurableStaticFileHandler(folderName) {
             try {
               return res.end(md.render(data.toString('utf8')));
             } catch (e) {
-              next(e);
+              return next(e);
             }
           default:
             return res.end(data);
