@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "experimentalDecorators": true,
+    "rootDir": ".",
+    "outDir": ".",
+    "lib": [
+      "es5",
+      "es2015.promise",
+      "dom"
+    ],
+    "sourceMap": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true
+  },
+  "include": [
+    "**/*"
+  ],
+  "exclude": [
+    "node_modules"
+    
+  ]
+}
