@@ -27,6 +27,8 @@ function defaultHandler(req, res) {
     });
 }
 var app = express();
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'pug');
 function sayHelloMiddleware(req, res, next) {
     console.log('we are saying hello', req.url);
     next();
@@ -78,6 +80,9 @@ function configurableStaticFileHandler(folderName) {
     };
 }
 app.use(sayHelloMiddleware);
+app.get('/', function (req, res, next) {
+    return res.render('index', {});
+});
 app.get('/foo', fooHandler);
 //app.post('/foo', fooHandler);
 app.get('/bar', barHandler);

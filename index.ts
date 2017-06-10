@@ -29,6 +29,8 @@ function defaultHandler(req : express.Request, res  : express.Response) {
 }
 
 var app = express();
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'pug');
 
 function sayHelloMiddleware(req : express.Request, res : express.Response, next : express.NextFunction) {
   console.log('we are saying hello', req.url);
@@ -85,6 +87,9 @@ function configurableStaticFileHandler(folderName : string) {
 
 
 app.use(sayHelloMiddleware);
+app.get('/', function (req, res, next) {
+  return res.render('index', {});
+});
 app.get('/foo', fooHandler);
 //app.post('/foo', fooHandler);
 app.get('/bar', barHandler);
