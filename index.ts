@@ -1,32 +1,9 @@
 import * as http from 'http';
-import * as fs from 'fs';
+import * as Promise from 'bluebird';
+import * as fs from 'fs-extra-promise';
 import * as path from 'path';
 import * as express from 'express';
 import * as MarkdownIt from 'markdown-it';
-
-// let's add some changes.
-
-function fooHandler(req : express.Request, res : express.Response) {
-  res.setHeader('content-type', 'text/plain');
-  return res.end('you have reached page foo');
-}
-
-function barHandler(req : express.Request, res : express.Response) {
-  res.setHeader('content-type', 'text/plain');
-  return res.end('you have reached page BAR');
-}
-
-function defaultHandler(req : express.Request, res  : express.Response) {
-  return fs.readFile(path.join(__dirname, 'read.js'), 'utf8', function (err : any, data : string) {
-    res.setHeader('content-type', 'text/plain');
-    if (err) {
-      res.statusCode = 500;
-      res.end('Error: ' + err.stack);
-    } else {
-      res.end(data);
-    }
-  });
-}
 
 var app = express();
 app.set('views', path.join(__dirname, 'views'));
@@ -50,6 +27,22 @@ function mapUrlToFilePath(url : string, folderName : string) {
   return path.join(__dirname, folderName, url);
 }
 
+function readMarkDownFile(filePath : string) : Promise<string> {
+  var md = new MarkdownIt();
+  return fs.readFileAsync(filePath, 'utf8')
+    .then((data) => {
+      return md.render(data);
+    });
+}
+
+function readMarkDownFileList(filePathList : string[]) : Promise<string[]> {
+  return Promise.map(filePathList, readMarkDownFile);
+}
+
+function readRawFile(filePath : string) : Promise<Buffer> {
+  return fs.readFileAsync(filePath);
+} 
+
 function configurableStaticFileHandler(folderName : string) {
   return function staticFileHandler(req : express.Request, res : express.Response, next : express.NextFunction) {
     // 1 - identify which particular file that this request is asking for.
@@ -60,39 +53,57 @@ function configurableStaticFileHandler(folderName : string) {
     // /test.html => static/test.html
     // <url> => static/<url>
     var mappedPath = mapUrlToFilePath(req.url, folderName);
-    var md = new MarkdownIt();
-    // .md => md.render
-    // .png => pass through (binary instead of utf8)
-    // .html => pass through.
-    fs.readFile(mappedPath, function (err : any, data : Buffer) {
-      if (err != null) {
-        next(err);
-      } else {
-        console.log('mappedPath =', mappedPath, path.extname(mappedPath));
-        switch (path.extname(mappedPath)) {
-          case '.md':
-            // convert this data over from html to markdown.
-            try {
-              return res.end(md.render(data.toString('utf8')));
-            } catch (e) {
-              return next(e);
-            }
-          default:
+    switch (path.extname(mappedPath)) {
+      case '.md':
+        return readMarkDownFile(mappedPath)
+          .then((data) => {
             return res.end(data);
-        }
-      }
-    });
+          })
+          .catch(next);
+      default:
+        return readRawFile(mappedPath)
+          .then((data) => {
+            return res.end(data);
+          })
+          .catch(next);
+    }
   }
 }
 
 
 app.use(sayHelloMiddleware);
 app.get('/', function (req, res, next) {
-  return res.render('index', {});
+  return readMarkDownFileList([
+    './static/landing-page/jumbotron.md',
+    './static/landing-page/proposition.md',
+    './static/landing-page/benefits/benefit-1.md',
+    './static/landing-page/benefits/benefit-2.md',
+    './static/landing-page/benefits/benefit-3.md',
+    './static/landing-page/topics/topic-1.md',
+    './static/landing-page/topics/topic-2.md',
+    './static/landing-page/topics/topic-3.md',
+    './static/landing-page/call-to-action.md'
+  ].map((filePath) => path.join(__dirname, filePath)))
+    .then((markdownFiles) => {
+      console.log('markdownFiles', markdownFiles)
+      return res.render('index', {
+        jumbotron: markdownFiles[0],
+        proposition: markdownFiles[1],
+        benefits: [
+          markdownFiles[2],
+          markdownFiles[3],
+          markdownFiles[4]
+        ],
+        topics: [
+          markdownFiles[5],
+          markdownFiles[6],
+          markdownFiles[7]
+        ],
+        callToAction: markdownFiles[8]
+      })
+    })
+    .catch(next);
 });
-app.get('/foo', fooHandler);
-//app.post('/foo', fooHandler);
-app.get('/bar', barHandler);
 app.get('/xyz', function (rqe, res) {
   res.end('this is the XYZ handler');
 });
