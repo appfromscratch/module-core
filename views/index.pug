@@ -13,16 +13,21 @@ html
           a.navbar-brand(href='/') Header Section
     // body section
     div.container-fluid
-      div.jumbotron !{jumbotron}
+      div.jumbotron 
+        Include ../static/landing-page/jumbotron.md
         div.sign-up Signup
-      div.proposition !{proposition}
+      div.proposition 
+        Include ../static/landing-page/proposition.md
       div.benefits
-        for benefit in benefits
-          div.benefit !{benefit}
+        for benefit in [1, 2, 3]
+          div.benefit
+            Include ../static/landing-page/benefits/benefit-#{benefit}.md
       div.topics
-        for topic in topics
-          div.topic !{topic}
-      div.call-to-action !{callToAction}
+        for topic in [1, 2, 3]
+          div.topic
+            Include ../static/landing-page/topics/topic-#{topic}.md
+      div.call-to-action 
+        Include ../static/landing-page/call-to-action.md
         div.sign-up Signup
     // footer section
     div.footer Footer section

@@ -4,6 +4,17 @@ import * as fs from 'fs-extra-promise';
 import * as path from 'path';
 import * as express from 'express';
 import * as MarkdownIt from 'markdown-it';
+import * as pug from 'pug';
+
+var md = new MarkdownIt({ html: true });
+require('pug').filters['md'] = function (data : string, options : any) {
+  return md.render(data);
+};
+require('pug').filters['mdInclude'] = function (relPath : string, options : any) {
+  let filePath = path.relative(options.filename, relPath);
+  let data = fs.readFileSync(filePath, 'utf8');
+  return md.render(data);
+};
 
 var app = express();
 app.set('views', path.join(__dirname, 'views'));
@@ -70,38 +81,117 @@ function configurableStaticFileHandler(folderName : string) {
   }
 }
 
+let includeRegex = /<Include>\s*([^<\s]+)\s*<\/Include>/g;
+
+type Template = (locals ?: {[key: string] : any}) => string;
+
+class TemplateEngine {
+  private _templateMap : {[key: string] : Template};
+  private _basePath : string;
+
+  constructor(basePath : string) {
+    this._basePath = basePath;
+    this._templateMap = {};
+  }
+
+  getFullTemplatePath(templateFilePath : string) : string {
+    if (path.isAbsolute(templateFilePath)) {
+      return templateFilePath;
+    } else {
+      return path.join(this._basePath, templateFilePath);
+    }
+  }
+
+  getTemplate(templateFilePath : string) : Promise<Template> {
+    let fullTemplateFilePath = this.getFullTemplatePath(templateFilePath);
+    if (this._templateMap[fullTemplateFilePath]) {
+      return Promise.resolve<Template>(this._templateMap[fullTemplateFilePath]);
+    } else {
+      return this.compileTemplate(fullTemplateFilePath)
+        .then((template) => {
+          this._templateMap[fullTemplateFilePath] = template;
+          return template;
+        })
+    }
+  }
+
+  compileTemplate(fullTemplateFilePath : string) : Promise<Template> {
+    let extname = path.extname(fullTemplateFilePath);
+    switch (extname) {
+      case '.pug':
+        return Promise.try<Template>(() => pug.compileFile(fullTemplateFilePath, {
+          filename: path.basename(fullTemplateFilePath),
+          basedir: this._basePath
+        }));
+      case '.md':
+        return fs.readFileAsync(fullTemplateFilePath, 'utf8')
+          .then((data) => {
+            return (locals : any) => {
+              return md.render(data, { html: true });
+            };
+          })
+      default:
+        throw new Error(`UnknownTemplateType: ${extname}`);
+    }
+  }
+
+  getRelativeFullPath(fullFilePath : string, relativePath : string) : string {
+    return path.join(path.dirname(fullFilePath), relativePath);
+  }
+
+  render(templateFilePath : string, locals ?: {[key: string]: any}) : Promise<string> {
+    let fullTemplateFilePath = this.getFullTemplatePath(templateFilePath);
+    return this.getTemplate(templateFilePath)
+      .then((fn) => {
+        let result = fn(locals);
+        let [ fragments , includePaths ] = this.splitByIncludes(result);
+        console.info('TemplateEngine.render', templateFilePath, fragments, includePaths);
+        let output : string[] = [ fragments[0] ];
+        let fullIncludePaths = includePaths.map((includePath) => {
+          return this.getRelativeFullPath(fullTemplateFilePath, includePath);
+        });
+        return Promise.map(fullIncludePaths, (includePath) => {
+          return this.render(includePath, locals);
+        })
+          .then((files) => {
+            for (var i = 0; i < files.length; ++i) {
+              output.push(files[i]);
+              output.push(fragments[i + 1]);
+            }
+            return output.join('');
+          })
+      })
+  }
+
+  findIncludePaths(html : string) : string[] {
+    let result = html.match(includeRegex);
+    console.log('This.findIncludePaths', result);
+    if (result) {
+      return result.map((res) => res.replace(includeRegex, '$1'));
+    } else {
+      return [];
+    }
+  }
+
+  splitByIncludes(html : string) : [ string[] , string[] ] {
+    let split = html.split(includeRegex);
+    let fragments : string[] = [ split[0] ];
+    let includePaths : string[] = [];
+    for (var i = 1; i < split.length; i = i + 2) {
+      includePaths.push(split[i]);
+      fragments.push(split[i + 1]);
+    }
+    return [ fragments, includePaths ];
+  }
+
+}
+
+let templateEngine = new TemplateEngine(path.join(__dirname, 'views'));
 
 app.use(sayHelloMiddleware);
 app.get('/', function (req, res, next) {
-  return readMarkDownFileList([
-    './static/landing-page/jumbotron.md',
-    './static/landing-page/proposition.md',
-    './static/landing-page/benefits/benefit-1.md',
-    './static/landing-page/benefits/benefit-2.md',
-    './static/landing-page/benefits/benefit-3.md',
-    './static/landing-page/topics/topic-1.md',
-    './static/landing-page/topics/topic-2.md',
-    './static/landing-page/topics/topic-3.md',
-    './static/landing-page/call-to-action.md'
-  ].map((filePath) => path.join(__dirname, filePath)))
-    .then((markdownFiles) => {
-      console.log('markdownFiles', markdownFiles)
-      return res.render('index', {
-        jumbotron: markdownFiles[0],
-        proposition: markdownFiles[1],
-        benefits: [
-          markdownFiles[2],
-          markdownFiles[3],
-          markdownFiles[4]
-        ],
-        topics: [
-          markdownFiles[5],
-          markdownFiles[6],
-          markdownFiles[7]
-        ],
-        callToAction: markdownFiles[8]
-      })
-    })
+  templateEngine.render('index.pug')
+    .then(result => res.end(result))
     .catch(next);
 });
 app.get('/xyz', function (rqe, res) {

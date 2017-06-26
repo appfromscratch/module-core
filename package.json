@@ -19,6 +19,7 @@
     "@types/fs-extra-promise": "^1.0.2",
     "@types/markdown-it": "0.0.2",
     "@types/node": "^7.0.28",
+    "@types/pug": "^2.0.4",
     "typescript": "^2.3.4"
   },
   "scripts": {
