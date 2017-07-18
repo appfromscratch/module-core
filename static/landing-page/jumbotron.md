@@ -2,4 +2,4 @@
 
 This is the Jumbotron Section.
 
-<Include>../../views/signup.pug</Include>
+<Include>../signup.pug</Include>

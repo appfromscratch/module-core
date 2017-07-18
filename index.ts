@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as express from 'express';
 import * as MarkdownIt from 'markdown-it';
 import * as pug from 'pug';
+import * as chokidar from 'chokidar';
 
 var md = new MarkdownIt({ html: true });
 require('pug').filters['md'] = function (data : string, options : any) {
@@ -81,17 +82,88 @@ function configurableStaticFileHandler(folderName : string) {
   }
 }
 
+interface List<T> {
+  isEmpty() : boolean;
+  push(item: T) : List<T>;
+  has(item: T) : boolean;
+  toArray() : T[];
+}
+
+class Empty<T> implements List<T> {
+  isEmpty() : boolean { return true }
+  push(item : T) : List<T> {
+    return new Pair<T>(item, this);
+  }
+  has(item: T) : boolean { return false; }
+  toArray() : T[] { return []; }
+}
+
+class Pair<T> implements List<T> {
+  readonly head : T;
+  readonly tail : List<T>;
+  constructor(head: T, tail : List<T>) {
+    this.head = head;
+    this.tail = tail;
+  }
+  isEmpty() : boolean { return false; }
+
+  push(item : T) : List<T> {
+    return new Pair<T>(item, this);
+  }
+
+  has(item : T) : boolean {
+    let current : List<T> = this;
+    while (current instanceof Pair) {
+      if (current.head === item)
+        return true;
+      current = current.tail;
+    }
+    return false;
+  }
+  toArray() : T[] {
+    let result : T[] = [];
+    let current : List<T> = this;
+    while (current instanceof Pair) {
+      result.push(current.head);
+      current = current.tail;
+    }
+    return result;
+  }
+}
+
 let includeRegex = /<Include>\s*([^<\s]+)\s*<\/Include>/g;
 
-type Template = (locals ?: {[key: string] : any}) => string;
+interface Template {
+  filename: string;
+  fullPath: string;
+  mtime: number;
+  fn: (locals ?: {[key: string] : any}) => string;
+}
 
 class TemplateEngine {
   private _templateMap : {[key: string] : Template};
   private _basePath : string;
+  private _watcher : chokidar.FSWatcher;
 
   constructor(basePath : string) {
     this._basePath = basePath;
     this._templateMap = {};
+    this._watcher = chokidar.watch(this._basePath, {
+      ignored: /(^|[\/\\])\../,
+      persistent: true
+    })
+    this._watcher
+      .on('change', (fullPath : string, stat : fs.Stats) => {
+        console.info('Template.change', fullPath);
+        if (this._templateMap[fullPath]) { // only refresh if it exists in the template.
+          console.info('Template.change:RECOMPILE', fullPath);
+          this.compileSetTemplate(fullPath)
+            .then(() => null)
+        }
+      })
+      .on('unlink', (fullPath : string) => {
+        delete this._templateMap[fullPath];
+      })
   }
 
   getFullTemplatePath(templateFilePath : string) : string {
@@ -102,34 +174,70 @@ class TemplateEngine {
     }
   }
 
+  compileSetTemplate(fullTemplateFilePath : string) : Promise<Template> {
+    return this.compileTemplate(fullTemplateFilePath)
+      .then((template) => {
+        this._templateMap[fullTemplateFilePath] = template;
+        return template;
+      })
+  }
+
   getTemplate(templateFilePath : string) : Promise<Template> {
     let fullTemplateFilePath = this.getFullTemplatePath(templateFilePath);
     if (this._templateMap[fullTemplateFilePath]) {
       return Promise.resolve<Template>(this._templateMap[fullTemplateFilePath]);
     } else {
-      return this.compileTemplate(fullTemplateFilePath)
-        .then((template) => {
-          this._templateMap[fullTemplateFilePath] = template;
-          return template;
-        })
+      return this.compileSetTemplate(fullTemplateFilePath);
     }
+  }
+
+  compilePugTemplate(fullTemplateFilePath : string) : Promise<Template> {
+    return fs.statAsync(fullTemplateFilePath)
+      .then((stat) => {
+        if (stat.isFile()) {
+          return {
+            filename: path.basename(fullTemplateFilePath),
+            fullPath: fullTemplateFilePath,
+            mtime: stat.mtime.getTime(),
+            fn: pug.compileFile(fullTemplateFilePath, {
+              filename: path.basename(fullTemplateFilePath),
+              basedir: this._basePath
+            })
+          }
+        } else {
+          throw new Error(`NotFile: ${fullTemplateFilePath}`)
+        }
+      });
+  }
+
+  compileMarkdownTemplate(fullTemplateFilePath : string) : Promise<Template> {
+    return fs.statAsync(fullTemplateFilePath)
+      .then((stat) => {
+        if (stat.isFile()) {
+          return fs.readFileAsync(fullTemplateFilePath, 'utf8')
+            .then((data) => {
+              return {
+                filename: path.basename(fullTemplateFilePath),
+                fullPath: fullTemplateFilePath,
+                mtime: stat.mtime.getTime(),
+                fn: (locals: any) => {
+                  return md.render(data, { html : true })
+                }
+              }
+            })
+        } else {
+          throw new Error(`NotFile: ${fullTemplateFilePath}`)
+        }
+      })
   }
 
   compileTemplate(fullTemplateFilePath : string) : Promise<Template> {
     let extname = path.extname(fullTemplateFilePath);
     switch (extname) {
       case '.pug':
-        return Promise.try<Template>(() => pug.compileFile(fullTemplateFilePath, {
-          filename: path.basename(fullTemplateFilePath),
-          basedir: this._basePath
-        }));
+        return this.compilePugTemplate(fullTemplateFilePath);
       case '.md':
-        return fs.readFileAsync(fullTemplateFilePath, 'utf8')
-          .then((data) => {
-            return (locals : any) => {
-              return md.render(data, { html: true });
-            };
-          })
+        return this.compileMarkdownTemplate(fullTemplateFilePath);
       default:
         throw new Error(`UnknownTemplateType: ${extname}`);
     }
@@ -139,19 +247,28 @@ class TemplateEngine {
     return path.join(path.dirname(fullFilePath), relativePath);
   }
 
-  render(templateFilePath : string, locals ?: {[key: string]: any}) : Promise<string> {
+  renderCycleError(fullTemplateFilePath : string, prev : List<string>) : Promise<string> {
+    return this.render('_cycle-error.pug', {
+      filePath: fullTemplateFilePath,
+      stack: prev.toArray()
+    });
+  }
+
+  renderNoCycle(templateFilePath : string, locals: {[key: string]: any}, prev : List<string>) : Promise<string> {
     let fullTemplateFilePath = this.getFullTemplatePath(templateFilePath);
+    if (prev.has(fullTemplateFilePath)) {
+      return this.renderCycleError(fullTemplateFilePath, prev);
+    }
     return this.getTemplate(templateFilePath)
-      .then((fn) => {
-        let result = fn(locals);
+      .then((template) => {
+        let result = template.fn(locals);
         let [ fragments , includePaths ] = this.splitByIncludes(result);
-        console.info('TemplateEngine.render', templateFilePath, fragments, includePaths);
         let output : string[] = [ fragments[0] ];
         let fullIncludePaths = includePaths.map((includePath) => {
           return this.getRelativeFullPath(fullTemplateFilePath, includePath);
         });
         return Promise.map(fullIncludePaths, (includePath) => {
-          return this.render(includePath, locals);
+          return this.renderNoCycle(includePath, locals, prev.push(fullTemplateFilePath));
         })
           .then((files) => {
             for (var i = 0; i < files.length; ++i) {
@@ -161,6 +278,10 @@ class TemplateEngine {
             return output.join('');
           })
       })
+  }
+
+  render(templateFilePath : string, locals ?: {[key: string]: any}) : Promise<string> {
+    return this.renderNoCycle(templateFilePath, locals || {}, new Empty<string>());
   }
 
   findIncludePaths(html : string) : string[] {
@@ -186,7 +307,7 @@ class TemplateEngine {
 
 }
 
-let templateEngine = new TemplateEngine(path.join(__dirname, 'views'));
+let templateEngine = new TemplateEngine(path.join(__dirname, 'static'));
 
 app.use(sayHelloMiddleware);
 app.get('/', function (req, res, next) {

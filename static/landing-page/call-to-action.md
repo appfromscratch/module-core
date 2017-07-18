@@ -1,5 +1,5 @@
 ## Call To Action
 
-This is the Call To Action Section.
+This is the Call To Action Section updated.
 
-<Include>../../views/signup.pug</Include>
+<Include>../signup.pug</Include>
