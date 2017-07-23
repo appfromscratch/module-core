@@ -231,9 +231,33 @@ class TemplateEngine {
       })
   }
 
+  compileHtmlTemplate(fullTemplateFilePath : string) : Promise<Template> {
+    return fs.statAsync(fullTemplateFilePath)
+      .then((stat) => {
+        if (stat.isFile()) {
+          return fs.readFileAsync(fullTemplateFilePath, 'utf8')
+            .then((data) => {
+              return {
+                filename: path.basename(fullTemplateFilePath),
+                fullPath: fullTemplateFilePath,
+                mtime: stat.mtime.getTime(),
+                fn: (locals: any) => {
+                  // our HTML template currently doesn't do variable substitutions.
+                  return data;
+                }
+              }
+            })
+        } else {
+          throw new Error(`NotFile: ${fullTemplateFilePath}`)
+        }
+      })
+  }
+
   compileTemplate(fullTemplateFilePath : string) : Promise<Template> {
     let extname = path.extname(fullTemplateFilePath);
     switch (extname) {
+      case '.html':
+        return this.compileHtmlTemplate(fullTemplateFilePath);
       case '.pug':
         return this.compilePugTemplate(fullTemplateFilePath);
       case '.md':

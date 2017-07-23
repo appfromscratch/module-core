@@ -202,9 +202,33 @@ var TemplateEngine = (function () {
             }
         });
     };
+    TemplateEngine.prototype.compileHtmlTemplate = function (fullTemplateFilePath) {
+        return fs.statAsync(fullTemplateFilePath)
+            .then(function (stat) {
+            if (stat.isFile()) {
+                return fs.readFileAsync(fullTemplateFilePath, 'utf8')
+                    .then(function (data) {
+                    return {
+                        filename: path.basename(fullTemplateFilePath),
+                        fullPath: fullTemplateFilePath,
+                        mtime: stat.mtime.getTime(),
+                        fn: function (locals) {
+                            // our HTML template currently doesn't do variable substitutions.
+                            return data;
+                        }
+                    };
+                });
+            }
+            else {
+                throw new Error("NotFile: " + fullTemplateFilePath);
+            }
+        });
+    };
     TemplateEngine.prototype.compileTemplate = function (fullTemplateFilePath) {
         var extname = path.extname(fullTemplateFilePath);
         switch (extname) {
+            case '.html':
+                return this.compileHtmlTemplate(fullTemplateFilePath);
             case '.pug':
                 return this.compilePugTemplate(fullTemplateFilePath);
             case '.md':

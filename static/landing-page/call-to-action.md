@@ -2,4 +2,4 @@
 
 This is the Call To Action Section updated.
 
-<Include>../signup.pug</Include>
+<Include>../signup.html</Include>
